@@ -24,7 +24,7 @@ while True:
         weight = target
 
         # Stabil
-        if time.time() - stable_start > random.randint(10, 20):
+        if time.time() - stable_start > random.randint(15, 30):
             fase = "turun"
 
     elif fase == "turun":

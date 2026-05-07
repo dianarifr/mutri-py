@@ -15,7 +15,7 @@ class ScaleReceiver:
 
         self.buffer = ""
 
-        self.stable_time = 5 # 5 detik
+        self.stable_time = 5 # detik
 
         self.last_weight = None
         self.start_same_time = None
@@ -102,8 +102,8 @@ class ScaleReceiver:
             # print(result)
             if result["code"] == 201:
                 print("✅ Sukses:", result["message"])
-                self.lamp.yellow_on()
-                time.sleep(5)
+                self.lamp.green_on()
+                time.sleep(10)
             elif result["code"] not in [201, 500]: # tidak boleh masuk
                  print(result["message"])
                  self.lamp.blink_red()
@@ -182,6 +182,10 @@ class ScaleReceiver:
                 continue
 
             with self.lock:
+                if not self.is_stable:
+                    print("🟡 Timbangan belum stabil, silahkan tunggu...")
+                    continue
+
                 print("📥 RFID diterima:", rfid)
                 self.pending_rfid = rfid
                 self.try_send()
