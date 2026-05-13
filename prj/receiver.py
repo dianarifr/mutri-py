@@ -138,7 +138,7 @@ class ScaleReceiver:
         part1, weight, part3 = parts
 
         # CEK KOSONG
-        if weight == "000" and part3 == "00":
+        if (weight == "000" or weight == "00")  and part3 == "00":
             self.handle_empty()
             return
 

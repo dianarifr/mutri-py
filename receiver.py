@@ -1,6 +1,7 @@
 import serial
 
-ser = serial.Serial('/tmp/scale_rx', 9600)
+# ser = serial.Serial('/tmp/scale_rx', 9600)
+ser = serial.Serial('/dev/ttyUSB0', 9600)
 buffer = ""
 
 while True:
