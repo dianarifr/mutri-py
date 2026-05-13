@@ -3,19 +3,26 @@ import serial
 import time
 import threading
 import requests
+import configparser
 
 from lamp import LampController
 
+config = configparser.ConfigParser()
+config.read('config.ini')
+scale_port = config['prj']['usb_scale_port']
+lamp_port = config['prj']['usb_lamp_port']
+default_stable_time = int(config['prj']['stable_time'])
+
 class ScaleReceiver:
 
-    def __init__(self, port="/tmp/scale_rx", baudrate=9600):
+    def __init__(self, port=scale_port, baudrate=9600):
         self.ser = serial.Serial(port=port, baudrate=baudrate, timeout=1)
-        # self.lamp = LampController('/tmp/usb_virtual_rx') --> harus jalankan virtual_usb.py dulu
-        self.lamp = LampController('/dev/ttyUSB0')
+
+        self.lamp = LampController(lamp_port)
 
         self.buffer = ""
 
-        self.stable_time = 5 # detik
+        self.stable_time = default_stable_time
 
         self.last_weight = None
         self.start_same_time = None
@@ -48,7 +55,8 @@ class ScaleReceiver:
     def handle_stable(self):
         with self.lock:
             if not self.is_stable:
-                print("🔥 TIMBANGAN STABIL")
+                part1, weight, part3 = self.last_frame_array
+                print(f"🔥 TIMBANGAN STABIL >> {weight}")
                 self.is_stable = True
                 self.lamp.red_on()
 

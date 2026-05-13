@@ -44,7 +44,7 @@ while True:
     ser.write(frame)
 
     # Tampilan debug
-    print(f"STX {frame_text} CR")
+    print(f"{frame} >> STX {frame_text} CR")
 
     # time.sleep(0.005) # 200 data per detik
     time.sleep(0.05) # 20 data per detik

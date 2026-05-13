@@ -1,23 +1,27 @@
 import serial
 
 ser = serial.Serial('/tmp/scale_rx', 9600)
-
-buffer = b''
+buffer = ""
 
 while True:
-    byte = ser.read(1)
+    data = ser.read(1)
 
-    if byte == b'\x02':  # STX
-        buffer = b''
+    if not data:
+        continue
 
-        while True:
-            bdata = ser.read(1)
-            if bdata == b'\r':  # CR
-                break
-            buffer += bdata
+    byte = data[0]
 
-        try:
-            berat = int(buffer.decode())
-            print("Berat:", berat)
-        except:
-            pass
+    if byte == 2:  # STX
+        buffer = ""
+        continue
+
+    elif byte == 13:  # CR
+        if buffer:
+            parts = buffer.strip().split()
+            print(parts)
+
+        buffer = ""
+        continue
+
+    else:
+        buffer += chr(byte)

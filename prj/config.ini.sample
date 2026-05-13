@@ -1,0 +1,4 @@
+[prj]
+stable_time=5 # detik, waktu untuk menentukan stabil
+usb_lamp_port=
+usb_scale_port=
