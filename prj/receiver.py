@@ -12,6 +12,7 @@ config.read('config.ini')
 scale_port = config['prj']['usb_scale_port']
 lamp_port = config['prj']['usb_lamp_port']
 default_stable_time = int(config['prj']['stable_time'])
+url_api = config['prj']['url_api']
 
 class ScaleReceiver:
 
@@ -41,7 +42,7 @@ class ScaleReceiver:
     # =========================
     def handle_empty(self):
         with self.lock:
-            # print("🟡 TIDAK ADA BEBAN")
+            print("🟡 Timbangan tidak ada beban...")
             self.reset_state()
 
     def handle_unstable(self, weight):
@@ -92,8 +93,7 @@ class ScaleReceiver:
         print("📡 Mengirim data ke server...")
         time.sleep(3)
 
-        # url = "http://php8.local/murti/api.php"
-        url = "http://172.27.27.91:8000/api/v1/timbang"
+        url = url_api
 
         payload = {
             "rfid": self.pending_rfid,
@@ -138,7 +138,7 @@ class ScaleReceiver:
         part1, weight, part3 = parts
 
         # CEK KOSONG
-        if (weight == "000" or weight == "00")  and part3 == "00":
+        if (weight == "000" or weight == "00") and part3 == "00":
             self.handle_empty()
             return
 
