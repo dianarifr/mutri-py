@@ -75,6 +75,7 @@ class ScaleReceiver:
         self.pending_rfid = None
         self.already_sent = False
         self.last_empty_log = 0
+        self.intentional_disconnect = False
 
         # =========================
         # THREAD SAFE
@@ -113,6 +114,8 @@ class ScaleReceiver:
                     )
 
                     self.connected = True
+                    self.intentional_disconnect = False
+                    self.last_data_time = time.time()
 
                     print(f"✅ Timbangan terhubung: {self.port}")
 
@@ -131,6 +134,8 @@ class ScaleReceiver:
     # ==================================
 
     def disconnect_serial(self):
+
+        self.intentional_disconnect = True
 
         self.connected = False
 
@@ -154,10 +159,10 @@ class ScaleReceiver:
 
                 timeout = time.time() - self.last_data_time
 
-                # 10 detik tidak ada data
-                if timeout >= 10:
+                # 5 detik tidak ada data
+                if timeout >= 5:
 
-                    print("🟡 Timbangan timeout...")
+                    print("🟡 Timbangan tidak ada response...")
 
                     self.disconnect_serial()
 
@@ -392,7 +397,13 @@ class ScaleReceiver:
 
             try:
 
-                data = self.ser.read(1)
+                ser = self.ser
+
+                if not ser:
+                    time.sleep(1)
+                    continue
+
+                data = ser.read(1)
 
                 if not data:
                     continue
@@ -428,7 +439,8 @@ class ScaleReceiver:
 
             except Exception as e:
 
-                print("🟡 Timbangan terputus:", e)
+                if not self.intentional_disconnect:
+                    print("🟡 Timbangan terputus:", e)
 
                 self.disconnect_serial()
 

@@ -107,7 +107,7 @@ while True:
 
             fase = "naik"
 
-            target = random.randint(195, 200)
+            target = random.randint(500, 5000)
 
             empty_start = None
 
@@ -117,7 +117,7 @@ while True:
 
     elif fase == "naik":
 
-        weight += random.randint(5, 15)
+        weight += random.randint(50, 150)
 
         if weight >= target:
 
@@ -135,10 +135,10 @@ while True:
 
         weight = target
 
-        # stabil 15-30 detik
+        # stabil 15-20 detik
         if (
             time.time() - stable_start
-            >= random.randint(15, 30)
+            >= random.randint(15, 20)
         ):
 
             fase = "turun"
@@ -149,7 +149,7 @@ while True:
 
     elif fase == "turun":
 
-        weight -= random.randint(10, 20)
+        weight -= random.randint(50, 150)
 
         if weight <= 0:
 
