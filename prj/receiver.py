@@ -23,7 +23,7 @@ lamp_port = config['prj']['usb_lamp_port']
 default_stable_time = int(config['prj']['stable_time'])
 
 url_api = config['prj']['url_api']
-key_api = config['prj']['key_api']
+api_key = config['prj']['api_key']
 
 
 class ScaleReceiver:
@@ -243,7 +243,8 @@ class ScaleReceiver:
 
             payload = {
                 "rfid": self.pending_rfid,
-                "data": self.last_frame_array
+                "data": self.last_frame_array,
+                "api_key": api_key,
             }
 
             self.api_queue.put(payload)
