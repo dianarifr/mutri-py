@@ -2,9 +2,10 @@
 # detik, waktu untuk menentukan stabil
 #/tmp/usb_virtual_rx # untuk testing lampu, harus jalankan virtual_usb.py dulu
 #/tmp/scale_rx # untuk testing timbangan, harus jalankan virtual_scale.py dulu
-# url_api="http://php8.local/murti/api.php"
+# api_url="http://php8.local/murti/api.php"
 stable_time=
 usb_lamp_port=
 usb_scale_port=
-url_api=
+api_url=
 api_key=
+stable_weight_tolerance=10

@@ -22,8 +22,9 @@ lamp_port = config['prj']['usb_lamp_port']
 
 default_stable_time = int(config['prj']['stable_time'])
 
-url_api = config['prj']['url_api']
+api_url = config['prj']['api_url']
 api_key = config['prj']['api_key']
+stable_weight_tolerance = config['prj']['stable_weight_tolerance']
 
 
 class ScaleReceiver:
@@ -42,6 +43,10 @@ class ScaleReceiver:
 
         self.last_wait_print = 0
         self.last_data_time = time.time()
+
+        self.tolerance = int(stable_weight_tolerance)
+        self.api_url = api_url
+        self.api_key = api_key
 
         # =========================
         # LAMP
@@ -65,8 +70,9 @@ class ScaleReceiver:
         # STATE
         # =========================
 
+        self.weight_history = []
         self.last_weight = None
-        self.start_same_time = None
+        # self.start_same_time = None
 
         self.is_stable = False
 
@@ -173,6 +179,7 @@ class ScaleReceiver:
     # =========================
 
     def handle_empty(self):
+        should_reset = False
 
         with self.lock:
 
@@ -185,25 +192,36 @@ class ScaleReceiver:
 
                 self.last_empty_log = now
 
+            if self.is_stable or self.already_sent:
+                should_reset = True
+
+        if should_reset:
             self.reset_state()
 
     def handle_unstable(self, weight):
+        should_trigger_lamp_off = False
 
         with self.lock:
 
             self.last_weight = weight
-            self.start_same_time = time.time()
+            # self.start_same_time = time.time()
 
-            self.is_stable = False
-            self.already_sent = False
+            if self.is_stable or self.already_sent:
+                self.is_stable = False
+                self.already_sent = False
+                should_trigger_lamp_off = True
 
+        if should_trigger_lamp_off:
             self.lamp.off()
 
     def handle_stable(self):
+        should_trigger_lamp = False
 
         with self.lock:
 
             if not self.is_stable:
+
+                should_trigger_lamp = True
 
                 part1, weight, part3 = self.last_frame_array
 
@@ -211,19 +229,20 @@ class ScaleReceiver:
 
                 self.is_stable = True
 
-                self.lamp.red_on()
-
             self.try_send()
 
+        if should_trigger_lamp:
+            self.lamp.red_on()
+
     def reset_state(self):
+        with self.lock:
+            self.last_weight = None
+            # self.start_same_time = None
 
-        self.last_weight = None
-        self.start_same_time = None
+            self.is_stable = False
 
-        self.is_stable = False
-
-        self.pending_rfid = None
-        self.already_sent = False
+            self.pending_rfid = None
+            self.already_sent = False
 
         self.lamp.off()
 
@@ -244,7 +263,7 @@ class ScaleReceiver:
             payload = {
                 "rfid": self.pending_rfid,
                 "data": self.last_frame_array,
-                "api_key": api_key,
+                "api_key": self.api_key,
             }
 
             self.api_queue.put(payload)
@@ -276,7 +295,7 @@ class ScaleReceiver:
         try:
 
             response = requests.post(
-                url_api,
+                self.api_url,
                 json=payload,
                 timeout=5
             )
@@ -297,9 +316,9 @@ class ScaleReceiver:
             # SUCCESS
             # =========================
 
-            if result["code"] == 201:
+            if result.get("code") == 201:
 
-                print("✅ Sukses:", result["message"])
+                print("✅ Sukses:", result.get("message", "No message"))
 
                 self.lamp.green_on(duration=10)
 
@@ -307,9 +326,9 @@ class ScaleReceiver:
             # CUSTOM ERROR
             # =========================
 
-            elif result["code"] not in [201, 500]:
+            elif result.get("code") not in [201, 500]:
 
-                print("🟡", result["message"])
+                print("🟡", result.get("message", "Warning/Custom Error"))
 
                 self.lamp.blink_red(duration=5)
 
@@ -323,7 +342,7 @@ class ScaleReceiver:
                     "❌ HTTP error:",
                     response.status_code,
                     ":",
-                    result["message"]
+                    result.get("message", "Internal Server Error")
                 )
 
                 self.lamp.blink_both(duration=5)
@@ -335,8 +354,8 @@ class ScaleReceiver:
             self.lamp.blink_both(duration=5)
 
         finally:
-
-            self.pending_rfid = None
+            with self.lock:
+                self.pending_rfid = None
 
     # =========================
     # FRAME PROCESSOR
@@ -344,10 +363,11 @@ class ScaleReceiver:
 
     def process_frame(self, parts):
 
-        if len(parts) != 3:
+        if not parts or len(parts) != 3:
             return
 
-        self.last_frame_array = parts.copy()
+        with self.lock:
+            self.last_frame_array = parts.copy()
 
         part1, weight, part3 = parts
 
@@ -365,20 +385,49 @@ class ScaleReceiver:
         # STABLE CHECK
         # =========================
 
-        if weight == self.last_weight:
+        # 1. Konversi data berat ke Integer (karena kelipatan bulat)
+        try:
+            current_val = int(weight)
+        except ValueError:
+            return # Abaikan jika data corrupt ("ERR", "OVER", dll)
 
-            if self.start_same_time is None:
-                self.start_same_time = time.time()
+        now = time.time()
+        is_stable_now = False
 
-            if (
-                time.time() - self.start_same_time
-                >= self.stable_time
-            ):
+        with self.lock:
 
-                self.handle_stable()
+            # 2. Catat waktu dan nilai berat saat ini ke dalam riwayat
+            self.weight_history.append((now, current_val))
 
+            # 3. Buang data riwayat yang usianya melebihi stable_time (+ 0.5 detik untuk buffer memori)
+            valid_window = self.stable_time + 0.5
+            self.weight_history = [
+                (t, w) for t, w in self.weight_history
+                if (now - t) <= valid_window
+            ]
+
+            # 4. Evaluasi Stabilitas (syarat: minimal ada 2 data di riwayat)
+            if len(self.weight_history) > 1:
+
+                # Ambil waktu dari data paling lama di riwayat
+                first_time = self.weight_history[0][0]
+
+                # Cek apakah durasi riwayat sudah memenuhi batas waktu stable_time
+                if (now - first_time) >= self.stable_time:
+
+                    # Ekstrak angkanya saja dari list history
+                    weights = [w for t, w in self.weight_history]
+
+                    # Cari selisih nilai Tertinggi dan Terendah
+                    fluctuation = max(weights) - min(weights)
+
+                    # Jika fluktuasinya masuk dalam batas toleransi (misal <= 10)
+                    if fluctuation <= self.tolerance:
+                        is_stable_now = True
+
+        if is_stable_now:
+            self.handle_stable()
         else:
-
             self.handle_unstable(weight)
 
     # =========================

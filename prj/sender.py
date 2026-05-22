@@ -133,7 +133,10 @@ while True:
 
     elif fase == "stabil":
 
-        weight = target
+        # simulasi noise / goyang kecil
+        noise = random.randint(-5, 5)
+
+        weight = target + noise
 
         # stabil 15-20 detik
         if (
