@@ -1,3 +1,4 @@
 prj/config.ini
 prj/__pycache__/
+prj/log/*
 __pycache__/

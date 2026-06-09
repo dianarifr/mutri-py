@@ -1,12 +1,16 @@
 # receiver_scale.py
 
+from logger import print
+
 import serial
 import time
 import threading
 import requests
 import configparser
 import queue
+import socket
 
+from urllib.parse import urlparse
 from lamp import LampController
 
 
@@ -25,7 +29,6 @@ default_stable_time = int(config['prj']['stable_time'])
 api_url = config['prj']['api_url']
 api_key = config['prj']['api_key']
 stable_weight_tolerance = config['prj']['stable_weight_tolerance']
-
 
 class ScaleReceiver:
 
@@ -106,33 +109,24 @@ class ScaleReceiver:
     # ==================================
 
     def serial_reconnect_loop(self):
-
         while True:
-
             if not self.connected:
-
                 try:
-
                     self.ser = serial.Serial(
                         port=self.port,
                         baudrate=self.baudrate,
                         timeout=1
                     )
-
                     self.connected = True
                     self.intentional_disconnect = False
                     self.last_data_time = time.time()
 
                     print(f"✅ Timbangan terhubung: {self.port}")
-
                 except Exception:
-
                     now = time.time()
-
                     if now - self.last_wait_print >= 5:
                         print(f"🟡 Menunggu timbangan terhubung: {self.port}")
                         self.last_wait_print = now
-
             time.sleep(2)
 
     # ==================================
@@ -140,9 +134,7 @@ class ScaleReceiver:
     # ==================================
 
     def disconnect_serial(self):
-
         self.intentional_disconnect = True
-
         self.connected = False
 
         if self.ser:
@@ -150,28 +142,52 @@ class ScaleReceiver:
                 self.ser.close()
             except:
                 pass
-
         self.ser = None
+
+    # ==================================
+    # INTERNET CHECK
+    # ==================================
+
+    def _is_internet_ok(self):
+        try:
+            # Mencoba koneksi ke Google DNS port 53 dengan timeout 2 detik
+            socket.create_connection(("8.8.8.8", 53), timeout=2)
+            return True
+        except OSError:
+            return False
+
+    # ==================================
+    # API HOST CHECK
+    # ==================================
+
+    def _is_api_host_reachable(self):
+        try:
+            # Memecah URL untuk mengambil nama domain/IP dan port-nya
+            parsed_url = urlparse(self.api_url)
+            hostname = parsed_url.hostname
+
+            # Tentukan port default berdasarkan http atau https
+            port = parsed_url.port if parsed_url.port else (443 if parsed_url.scheme == "https" else 80)
+
+            # Mencoba koneksi socket ke server API
+            socket.create_connection((hostname, port), timeout=2)
+            return True
+        except OSError:
+            return False
 
     # ==================================
     # WATCHDOG
     # ==================================
 
     def watchdog_loop(self):
-
         while True:
-
             if self.connected:
-
                 timeout = time.time() - self.last_data_time
 
                 # 5 detik tidak ada data
                 if timeout >= 5:
-
                     print("🟡 Timbangan tidak ada response...")
-
                     self.disconnect_serial()
-
             time.sleep(2)
 
     # =========================
@@ -182,14 +198,10 @@ class ScaleReceiver:
         should_reset = False
 
         with self.lock:
-
             now = time.time()
-
             # tampilkan max 1x tiap 5 detik
             if now - self.last_empty_log >= 5:
-
                 print("🟡 Timbangan tidak ada beban...")
-
                 self.last_empty_log = now
 
             if self.is_stable or self.already_sent:
@@ -202,9 +214,8 @@ class ScaleReceiver:
         should_trigger_lamp_off = False
 
         with self.lock:
-
-            self.last_weight = weight
             # self.start_same_time = time.time()
+            self.last_weight = weight
 
             if self.is_stable or self.already_sent:
                 self.is_stable = False
@@ -218,17 +229,11 @@ class ScaleReceiver:
         should_trigger_lamp = False
 
         with self.lock:
-
             if not self.is_stable:
-
                 should_trigger_lamp = True
-
                 part1, weight, part3 = self.last_frame_array
-
                 print(f"🔥 Timbangan stabil: {weight}")
-
                 self.is_stable = True
-
             self.try_send()
 
         if should_trigger_lamp:
@@ -237,13 +242,10 @@ class ScaleReceiver:
     def reset_state(self):
         with self.lock:
             self.last_weight = None
-            # self.start_same_time = None
-
             self.is_stable = False
-
             self.pending_rfid = None
             self.already_sent = False
-
+            # self.start_same_time = None
         self.lamp.off()
 
     # =========================
@@ -251,21 +253,17 @@ class ScaleReceiver:
     # =========================
 
     def try_send(self):
-
         if (
             self.is_stable
             and self.pending_rfid
             and not self.already_sent
         ):
-
             self.already_sent = True
-
             payload = {
                 "rfid": self.pending_rfid,
                 "data": self.last_frame_array,
                 "api_key": self.api_key,
             }
-
             self.api_queue.put(payload)
 
     # =========================
@@ -273,13 +271,9 @@ class ScaleReceiver:
     # =========================
 
     def api_worker_loop(self):
-
         while True:
-
             payload = self.api_queue.get()
-
             self.send_to_server(payload)
-
             self.api_queue.task_done()
 
     # =========================
@@ -287,13 +281,26 @@ class ScaleReceiver:
     # =========================
 
     def send_to_server(self, payload):
+        print("🔍 Memeriksa kestabilan internet...")
+        if not self._is_internet_ok():
+            print("❌ Internet tidak stabil / terputus!")
+            self.lamp.blink_both(duration=3)
+            return
+        else:
+            print("✅ Internet stabil")
+
+        print("🔍 Memeriksa koneksi ke server API...")
+        if not self._is_api_host_reachable():
+            print("❌ Server API down / tidak dapat dijangkau (Ping Fail)!")
+            self.lamp.blink_both(duration=3)
+            return
+        else:
+            print("✅ Server API dapat dijangkau")
 
         self.lamp.blink_green(duration=3)
-
         print("📡 Mengirim data ke server...")
-
+        print(f"📦 Data Payload: {payload}")
         try:
-
             response = requests.post(
                 self.api_url,
                 json=payload,
@@ -303,56 +310,28 @@ class ScaleReceiver:
             # validasi json
             try:
                 result = response.json()
-
             except Exception:
-
                 print("❌ Response bukan JSON")
-
                 self.lamp.blink_both(duration=5)
-
                 return
 
-            # =========================
-            # SUCCESS
-            # =========================
-
             if result.get("code") == 201:
-
                 print("✅ Sukses:", result.get("message", "No message"))
-
                 self.lamp.green_on(duration=10)
-
-            # =========================
-            # CUSTOM ERROR
-            # =========================
-
             elif result.get("code") not in [201, 500]:
-
                 print("🟡", result.get("message", "Warning/Custom Error"))
-
                 self.lamp.blink_red(duration=5)
-
-            # =========================
-            # SERVER ERROR
-            # =========================
-
             else:
-
                 print(
                     "❌ HTTP error:",
                     response.status_code,
                     ":",
                     result.get("message", "Internal Server Error")
                 )
-
                 self.lamp.blink_both(duration=5)
-
         except Exception as e:
-
             print("❌ Error kirim:", e)
-
             self.lamp.blink_both(duration=5)
-
         finally:
             with self.lock:
                 self.pending_rfid = None
@@ -362,7 +341,6 @@ class ScaleReceiver:
     # =========================
 
     def process_frame(self, parts):
-
         if not parts or len(parts) != 3:
             return
 
@@ -371,21 +349,14 @@ class ScaleReceiver:
 
         part1, weight, part3 = parts
 
-        # =========================
-        # EMPTY
-        # =========================
-
         if (weight == "000" or weight == "00") and part3 == "00":
-
             self.handle_empty()
-
             return
 
         # =========================
         # STABLE CHECK
         # =========================
 
-        # 1. Konversi data berat ke Integer (karena kelipatan bulat)
         try:
             current_val = int(weight)
         except ValueError:
@@ -395,26 +366,23 @@ class ScaleReceiver:
         is_stable_now = False
 
         with self.lock:
-
-            # 2. Catat waktu dan nilai berat saat ini ke dalam riwayat
+            # Catat waktu dan nilai berat saat ini ke dalam riwayat
             self.weight_history.append((now, current_val))
 
-            # 3. Buang data riwayat yang usianya melebihi stable_time (+ 0.5 detik untuk buffer memori)
+            # Buang data riwayat yang usianya melebihi stable_time (+ 0.5 detik untuk buffer memori)
             valid_window = self.stable_time + 0.5
             self.weight_history = [
                 (t, w) for t, w in self.weight_history
                 if (now - t) <= valid_window
             ]
 
-            # 4. Evaluasi Stabilitas (syarat: minimal ada 2 data di riwayat)
+            # Evaluasi Stabilitas (syarat: minimal ada 2 data di riwayat)
             if len(self.weight_history) > 1:
-
                 # Ambil waktu dari data paling lama di riwayat
                 first_time = self.weight_history[0][0]
 
                 # Cek apakah durasi riwayat sudah memenuhi batas waktu stable_time
                 if (now - first_time) >= self.stable_time:
-
                     # Ekstrak angkanya saja dari list history
                     weights = [w for t, w in self.weight_history]
 
@@ -435,18 +403,13 @@ class ScaleReceiver:
     # =========================
 
     def read_serial(self):
-
         while True:
-
             # belum connect
             if not self.connected or not self.ser:
-
                 time.sleep(1)
-
                 continue
 
             try:
-
                 ser = self.ser
 
                 if not ser:
@@ -460,40 +423,26 @@ class ScaleReceiver:
 
                 # watchdog timestamp
                 self.last_data_time = time.time()
-
                 byte = data[0]
 
                 # STX
                 if byte == 2:
-
                     self.buffer = ""
-
                     continue
 
                 # CR
                 elif byte == 13:
-
                     if self.buffer:
-
                         parts = self.buffer.strip().split()
-
                         self.process_frame(parts)
-
                     self.buffer = ""
-
                     continue
-
                 else:
-
                     self.buffer += chr(byte)
-
             except Exception as e:
-
                 if not self.intentional_disconnect:
                     print("🟡 Timbangan terputus:", e)
-
                 self.disconnect_serial()
-
                 time.sleep(1)
 
     # =========================
@@ -501,28 +450,19 @@ class ScaleReceiver:
     # =========================
 
     def rfid_listener(self):
-
         while True:
-
             rfid = input("Tap RFID:\n").strip()
 
             if not rfid:
                 continue
 
             with self.lock:
-
                 if not self.is_stable:
-
-                    print(
-                        "🟡 Timbangan belum stabil, silahkan tunggu..."
-                    )
-
+                    print("🟡 Timbangan belum stabil, silahkan tunggu...")
                     continue
 
                 print("📥 RFID diterima:", rfid)
-
                 self.pending_rfid = rfid
-
                 self.try_send()
 
     # =========================
@@ -530,7 +470,6 @@ class ScaleReceiver:
     # =========================
 
     def start(self):
-
         threading.Thread(
             target=self.serial_reconnect_loop,
             daemon=True
@@ -564,13 +503,8 @@ class ScaleReceiver:
 # =========================
 
 if __name__ == "__main__":
-
     try:
-
         receiver = ScaleReceiver()
-
         receiver.start()
-
     except serial.SerialException as e:
-
         print("Serial error:", e)
