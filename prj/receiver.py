@@ -299,7 +299,13 @@ class ScaleReceiver:
 
         self.lamp.blink_green(duration=3)
         print("📡 Mengirim data ke server...")
-        print(f"📦 Data Payload: {payload}")
+
+        log_payload = payload.copy()
+        if "api_key" in log_payload:
+            log_payload["api_key"] = "********"
+
+        print(f"📦 Data Payload: {log_payload}")
+
         try:
             response = requests.post(
                 self.api_url,
@@ -312,6 +318,8 @@ class ScaleReceiver:
                 result = response.json()
             except Exception:
                 print("❌ Response bukan JSON")
+                print(f"ℹ️ HTTP Status Code: {response.status_code}")
+                print(f"📄 Response server: {response.text[:500]}")
                 self.lamp.blink_both(duration=5)
                 return
 
