@@ -310,7 +310,7 @@ class ScaleReceiver:
             response = requests.post(
                 self.api_url,
                 json=payload,
-                timeout=5
+                timeout=15
             )
 
             # validasi json
