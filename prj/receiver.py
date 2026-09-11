@@ -488,10 +488,6 @@ class ScaleReceiver:
     # =========================
 
     def write_to_file(self, frame_data=None, api_key=None):
-        """
-        Menulis full array timbangan dan API Key ke file .murti.
-        Jika tidak ada beban, file dikosongkan.
-        """
         try:
             payload = {"data": frame_data, "api_key": api_key} if frame_data is not None else {}
 
