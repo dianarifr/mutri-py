@@ -9,6 +9,8 @@ import requests
 import configparser
 import queue
 import socket
+import os
+import json
 
 from urllib.parse import urlparse
 from lamp import LampController
@@ -29,6 +31,7 @@ default_stable_time = int(config['prj']['stable_time'])
 api_url = config['prj']['api_url']
 api_key = config['prj']['api_key']
 stable_weight_tolerance = config['prj']['stable_weight_tolerance']
+output_file_path = config['prj']['output_file_path']
 
 class ScaleReceiver:
 
@@ -50,6 +53,7 @@ class ScaleReceiver:
         self.tolerance = int(stable_weight_tolerance)
         self.api_url = api_url
         self.api_key = api_key
+        self.output_file_path = output_file_path
 
         # =========================
         # LAMP
@@ -85,6 +89,8 @@ class ScaleReceiver:
         self.already_sent = False
         self.last_empty_log = 0
         self.intentional_disconnect = False
+
+        self.write_to_file(None)
 
         # =========================
         # THREAD SAFE
@@ -204,7 +210,7 @@ class ScaleReceiver:
                 print("🟡 Timbangan tidak ada beban...")
                 self.last_empty_log = now
 
-            if self.is_stable or self.already_sent:
+            if self.is_stable or self.already_sent or self.last_weight is not None:
                 should_reset = True
 
         if should_reset:
@@ -232,12 +238,15 @@ class ScaleReceiver:
             if not self.is_stable:
                 should_trigger_lamp = True
                 part1, weight, part3 = self.last_frame_array
+                stable_frame = self.last_frame_array.copy()
                 print(f"🔥 Timbangan stabil: {weight}")
                 self.is_stable = True
             self.try_send()
 
         if should_trigger_lamp:
             self.lamp.red_on()
+            if stable_frame is not None:
+                self.write_to_file(stable_frame, self.api_key)
 
     def reset_state(self):
         with self.lock:
@@ -247,6 +256,7 @@ class ScaleReceiver:
             self.already_sent = False
             # self.start_same_time = None
         self.lamp.off()
+        self.write_to_file(None)
 
     # =========================
     # CENTRAL SEND CHECK
@@ -472,6 +482,44 @@ class ScaleReceiver:
                 print("📥 RFID diterima:", rfid)
                 self.pending_rfid = rfid
                 self.try_send()
+
+    # =========================
+    # WRITE TO FILE (.murti)
+    # =========================
+
+    def write_to_file(self, frame_data=None, api_key=None):
+        """
+        Menulis full array timbangan dan API Key ke file .murti.
+        Jika tidak ada beban, file dikosongkan.
+        """
+        try:
+            payload = {"data": frame_data, "api_key": api_key} if frame_data is not None else {}
+
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+            if os.path.isabs(self.output_file_path):
+                target_file = self.output_file_path
+            else:
+                target_file = os.path.join(base_dir, self.output_file_path)
+
+            target_dir = os.path.dirname(target_file) or base_dir
+            filename = os.path.basename(target_file)
+            temp_file = os.path.join(target_dir, f".{filename}.tmp")
+
+            with open(temp_file, "w") as f:
+                json.dump(payload, f)
+
+            os.replace(temp_file, target_file)
+
+            if frame_data is not None:
+                log_payload = payload.copy()
+                log_payload["api_key"] = "********"
+                print(f"💾 Menulis payload ke {target_file}: {log_payload}")
+            else:
+                print(f"🧹 Mengosongkan file {target_file}")
+
+        except Exception as e:
+            print(f"❌ Gagal menulis file {self.output_file_path}: {e}")
 
     # =========================
     # START SYSTEM

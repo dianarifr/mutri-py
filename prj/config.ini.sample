@@ -9,3 +9,4 @@ usb_scale_port=
 api_url=
 api_key=
 stable_weight_tolerance=10
+output_file_path = /tmp/timbangan.murti
